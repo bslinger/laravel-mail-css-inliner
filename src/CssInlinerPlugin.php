@@ -16,6 +16,11 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      */
     protected $css;
 
+	/**
+	 * @var array
+	 */
+	protected $exclusions;
+
     /**
      * @param array $options options defined in the configuration file.
      */
@@ -64,10 +69,17 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      */
     public function loadOptions($options)
     {
+	    $this->exclusions = [];
+	    if (isset($options['exclusions']) && count($options['exclusions']) > 0) {
+	    	$this->exclusions = $options['exclusions'];
+	    }
         if (isset($options['css-files']) && count($options['css-files']) > 0) {
             $this->css = '';
+            $exclusions = array_flip( $this->exclusions );
             foreach ($options['css-files'] as $file) {
-                $this->css .= file_get_contents($file);
+            	if ($file && !$exclusions || !in_array($file, $exclusions)) {
+		            $this->css .= file_get_contents( $file );
+	            }
             }
         }
     }
