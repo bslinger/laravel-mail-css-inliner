@@ -21,13 +21,19 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 	 */
 	protected $exclusions;
 
+	/**
+	 * @var array
+	 */
+	protected $options;
+
     /**
      * @param array $options options defined in the configuration file.
      */
     public function __construct(array $options)
     {
         $this->converter = new CssToInlineStyles();
-        $this->loadOptions($options);
+	    $this->options = $options;
+	    $this->loadOptions();
     }
 
     /**
@@ -65,23 +71,21 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 
     /**
      * Load the options
-     * @param  array $options Options array
      */
-    public function loadOptions($options)
+    public function loadOptions()
     {
 	    $this->exclusions = [];
-	    if (isset($options['exclusions']) && count($options['exclusions']) > 0) {
-	    	$this->exclusions = $options['exclusions'];
+	    if (isset($this->options['exclusions']) && count($this->options['exclusions']) > 0) {
+		    $this->exclusions = $this->options['exclusions'];
 	    }
-        if (isset($options['css-files']) && count($options['css-files']) > 0) {
-            $this->css = '';
-            $exclusions = array_flip( $this->exclusions );
-            foreach ($options['css-files'] as $file) {
-            	if ($file && !$exclusions || !in_array($file, $exclusions)) {
-		            $this->css .= file_get_contents( $file );
-	            }
-            }
-        }
+	    if (isset($this->options['css-files']) && count($this->options['css-files']) > 0) {
+		    $this->css = '';
+		    foreach ($this->options['css-files'] as $file) {
+			    if ($file && !$this->exclusions || !in_array($file, $this->exclusions)) {
+				    $this->css .= file_get_contents( $file );
+			    }
+		    }
+	    }
     }
 
     /**
@@ -95,34 +99,34 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      */
     public function loadCssFilesFromLinks($message)
     {
-        $dom = new \DOMDocument();
-        // set error level
-        $internalErrors = libxml_use_internal_errors(true);
-        
-        $dom->loadHTML($message);
-        
-        // Restore error level
-        libxml_use_internal_errors($internalErrors);
-        $link_tags = $dom->getElementsByTagName('link');
+	    $dom = new \DOMDocument();
+	    // set error level
+	    $internalErrors = libxml_use_internal_errors(true);
 
-        if ($link_tags->length > 0) {
-            do {
-                if ($link_tags->item(0)->getAttribute('rel') == "stylesheet") {
-                    $options['css-files'][] = $link_tags->item(0)->getAttribute('href');
+	    $dom->loadHTML($message);
 
-                    // remove the link node
-                    $link_tags->item(0)->parentNode->removeChild($link_tags->item(0));
-                }
-            } while ($link_tags->length > 0);
+	    // Restore error level
+	    libxml_use_internal_errors($internalErrors);
+	    $link_tags = $dom->getElementsByTagName('link');
 
-            if (isset($options)) {
-                // reload the options
-                $this->loadOptions($options);
-            }
+	    if ($link_tags->length > 0) {
+		    do {
+			    if ($link_tags->item(0)->getAttribute('rel') == "stylesheet") {
+				    $this->options['css-files'][] = $link_tags->item(0)->getAttribute('href');
 
-            return $dom->saveHTML();
-        }
+				    // remove the link node
+				    $link_tags->item(0)->parentNode->removeChild($link_tags->item(0));
+			    }
+		    } while ($link_tags->length > 0);
 
-        return $message;
+		    if (count($this->options)) {
+			    // reload the options
+			    $this->loadOptions();
+		    }
+
+		    return $dom->saveHTML();
+	    }
+
+	    return $message;
     }
 }
