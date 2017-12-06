@@ -47,14 +47,14 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
             || ($message->getContentType() === 'multipart/alternative' && $message->getBody())
             || ($message->getContentType() === 'multipart/mixed' && $message->getBody())
         ) {
-            $body = $this->loadCssFilesFromLinks($message->getBody());
-            $message->setBody($this->converter->convert($body, $this->css));
+            $result = $this->loadCssFilesFromLinks($message->getBody());
+            $message->setBody($this->converter->convert($result['message'], $result['css']));
         }
 
         foreach ($message->getChildren() as $part) {
             if (strpos($part->getContentType(), 'text/html') === 0) {
-                $body = $this->loadCssFilesFromLinks($part->getBody());
-                $part->setBody($this->converter->convert($body, $this->css));
+	            $result = $this->loadCssFilesFromLinks($part->getBody());
+                $part->setBody($this->converter->convert($result['message'], $result['css']));
             }
         }
     }
@@ -74,19 +74,32 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      */
     public function loadOptions()
     {
+	    $this->css = '';
+	    if (isset($this->options['css-files']) && count($this->options['css-files']) > 0) {
+		    $this->css = $this->loadCssFiles($this->options['css-files']);
+	    }
 	    $this->exclusions = [];
 	    if (isset($this->options['exclusions']) && count($this->options['exclusions']) > 0) {
 		    $this->exclusions = $this->options['exclusions'];
 	    }
-	    if (isset($this->options['css-files']) && count($this->options['css-files']) > 0) {
-		    $this->css = '';
-		    foreach ($this->options['css-files'] as $file) {
-			    if ($file && !$this->exclusions || !in_array($file, $this->exclusions)) {
-				    $this->css .= file_get_contents( $file );
-			    }
-		    }
-	    }
     }
+
+	/**
+	 * Load the CSS files and join on the shared CSS files already loaded
+	 * @param  array $files Files array
+	 * @param  boolean $include_shared Whether or not to include the CSS loaded from options
+	 *
+	 * @return string $css The CSS string
+	 */
+	public function loadCssFiles($files, $include_shared = true) {
+		$css = $include_shared ? $this->css : '';
+		foreach ($files as $file) {
+			if ($file && !$this->exclusions || !in_array($file, $this->exclusions)) {
+				$css .= file_get_contents( $file );
+			}
+		}
+		return $css;
+	}
 
     /**
      * Find CSS stylesheet links and load them
@@ -95,7 +108,7 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      * any link stylesheets to $this->css
      * Removes any link elements
      *
-     * @return string $message The message
+     * @return array $result Array of message and CSS
      */
     public function loadCssFilesFromLinks($message)
     {
@@ -110,23 +123,31 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 	    $link_tags = $dom->getElementsByTagName('link');
 
 	    if ($link_tags->length > 0) {
-		    do {
-			    if ($link_tags->item(0)->getAttribute('rel') == "stylesheet") {
-				    $this->options['css-files'][] = $link_tags->item(0)->getAttribute('href');
+		    $css_files = [];
+		    for( $i = 0, $actual_index = 0; $i < $link_tags->length; $i++ ) {
+			    if ($link_tags->item($actual_index)->getAttribute('rel') == "stylesheet") {
+			    	$href = $link_tags->item(0)->getAttribute('href');
+			    	// Don't remove link elements if their href is in the exclusion list (but keep track of new index value)
+				    if ($this->exclusions && in_array($href, $this->exclusions)) {
+					    $actual_index++;
+				        continue;
+				    }
+				    $css_files[] = $href;
 
 				    // remove the link node
-				    $link_tags->item(0)->parentNode->removeChild($link_tags->item(0));
+				    $link_tags->item($actual_index)->parentNode->removeChild($link_tags->item($actual_index));
 			    }
-		    } while ($link_tags->length > 0);
-
-		    if (count($this->options)) {
-			    // reload the options
-			    $this->loadOptions();
 		    }
 
-		    return $dom->saveHTML();
+		    return [
+		    	'message' => $dom->saveHTML(),
+			    'css' => $this->loadCssFiles($css_files),
+		    ];
 	    }
 
-	    return $message;
+	    return [
+		    'message' => $message,
+		    'css' => null,
+	    ];
     }
 }
