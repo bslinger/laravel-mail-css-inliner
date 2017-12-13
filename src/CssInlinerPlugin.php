@@ -132,6 +132,17 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 					    $actual_index++;
 				        continue;
 				    }
+					if(function_exists('public_path')) {
+                        $public_path = preg_replace('/\//', '\/', public_path());
+                    } else {
+                        $public_path = dirname(dirname(__FILE__)) . DIRECTORY_SEPARATOR . 'public';
+                    }
+
+                    if(preg_match("/^$public_path/", $href)) {
+                        $css_files[] = $href;
+                    } else {
+                        $css_files[] = public_path($href);
+                    }
 				    $css_files[] = $href;
 
 				    // remove the link node
