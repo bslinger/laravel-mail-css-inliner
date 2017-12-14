@@ -143,7 +143,6 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
                     } else {
                         $css_files[] = public_path($href);
                     }
-				    $css_files[] = $href;
 
 				    // remove the link node
 				    $link_tags->item($actual_index)->parentNode->removeChild($link_tags->item($actual_index));
