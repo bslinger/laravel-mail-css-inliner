@@ -121,24 +121,42 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 	    // Restore error level
 	    libxml_use_internal_errors($internalErrors);
 	    $link_tags = $dom->getElementsByTagName('link');
+	    $removing = [];
 
 	    if ($link_tags->length > 0) {
 		    $css_files = [];
 		    for( $i = 0, $actual_index = 0; $i < $link_tags->length; $i++ ) {
 			    if ($link_tags->item($actual_index)->getAttribute('rel') == "stylesheet") {
-			    	$href = $link_tags->item(0)->getAttribute('href');
-			    	// Don't remove link elements if their href is in the exclusion list (but keep track of new index value)
+				    $href = $link_tags->item($actual_index)->getAttribute('href');
+				    // Don't remove link elements if their href is in the exclusion list (but keep track of new index value)
 				    if ($this->exclusions && in_array($href, $this->exclusions)) {
 					    $actual_index++;
-				        continue;
+					    continue;
 				    }
-				    $css_files[] = $href;
+				    if(function_exists('public_path')) {
+					    $public_path = preg_replace('/\//', '\/', public_path());
+				    } else {
+					    $public_path = dirname(dirname(__FILE__)) . DIRECTORY_SEPARATOR . 'public';
+				    }
 
+				    if(preg_match("/^$public_path/", $href)) {
+					    $css_files[] = $href;
+				    } else {
+					    $css_files[] = public_path($href);
+				    }
+
+				    //var_dump( $link_tags->item($actual_index)->parentNode->getChild($link_tags->item($actual_index)) ); die();
 				    // remove the link node
-				    $link_tags->item($actual_index)->parentNode->removeChild($link_tags->item($actual_index));
+				    $removing[] = $i;
+			    }
+			    $actual_index++;
+		    }
+		    if ( $removing ) {
+			    arsort($removing);
+			    foreach( $removing as $remove ) {
+				    $link_tags->item( $remove )->parentNode->removeChild( $link_tags->item( $remove ) );
 			    }
 		    }
-
 		    return [
 		    	'message' => $dom->saveHTML(),
 			    'css' => $this->loadCssFiles($css_files),
