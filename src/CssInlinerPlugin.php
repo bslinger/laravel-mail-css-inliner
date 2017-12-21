@@ -21,6 +21,11 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 	 */
 	protected $exclusions;
 
+    /**
+     * @var array
+     */
+    protected $replacements;
+
 	/**
 	 * @var array
 	 */
@@ -58,6 +63,14 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
                 $part->setBody($this->converter->convert($result['message'], $result['css']));
             }
         }
+
+        $finalBody = $message->getBody();
+
+        foreach ($this->replacements as $find => $replace)
+        {
+            $finalBody = str_replace($find, $replace, $finalBody);
+        }
+        $message->setBody($finalBody);
     }
 
     /**
@@ -83,6 +96,11 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 	    if (isset($this->options['exclusions']) && count($this->options['exclusions']) > 0) {
 		    $this->exclusions = $this->options['exclusions'];
 	    }
+
+        $this->replacements = [];
+        if (isset($this->options['replacements']) && count($this->options['replacements']) > 0) {
+            $this->replacements = $this->options['replacements'];
+        }
     }
 
 	/**
