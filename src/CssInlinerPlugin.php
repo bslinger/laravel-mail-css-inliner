@@ -44,6 +44,7 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
         $message = $evt->getMessage();
 
         if ($message->getContentType() === 'text/html'
+            || ($message->getContentType() === 'multipart/related' && $message->getBody())
             || ($message->getContentType() === 'multipart/alternative' && $message->getBody())
             || ($message->getContentType() === 'multipart/mixed' && $message->getBody())
         ) {
