@@ -16,13 +16,29 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      */
     protected $css;
 
+	/**
+	 * @var array
+	 */
+	protected $exclusions;
+
+    /**
+     * @var array
+     */
+    protected $replacements;
+
+	/**
+	 * @var array
+	 */
+	protected $options;
+
     /**
      * @param array $options options defined in the configuration file.
      */
     public function __construct(array $options)
     {
         $this->converter = new CssToInlineStyles();
-        $this->loadOptions($options);
+	    $this->options = $options;
+	    $this->loadOptions();
     }
 
     /**
@@ -33,19 +49,28 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
         $message = $evt->getMessage();
 
         if ($message->getContentType() === 'text/html'
+            || ($message->getContentType() === 'multipart/related' && $message->getBody())
             || ($message->getContentType() === 'multipart/alternative' && $message->getBody())
             || ($message->getContentType() === 'multipart/mixed' && $message->getBody())
         ) {
-            $body = $this->loadCssFilesFromLinks($message->getBody());
-            $message->setBody($this->converter->convert($body, $this->css));
+            $result = $this->loadCssFilesFromLinks($message->getBody());
+            $message->setBody($this->converter->convert($result['message'], $result['css']));
         }
 
         foreach ($message->getChildren() as $part) {
             if (strpos($part->getContentType(), 'text/html') === 0) {
-                $body = $this->loadCssFilesFromLinks($part->getBody());
-                $part->setBody($this->converter->convert($body, $this->css));
+	            $result = $this->loadCssFilesFromLinks($part->getBody());
+                $part->setBody($this->converter->convert($result['message'], $result['css']));
             }
         }
+
+        $finalBody = $message->getBody();
+
+        foreach ($this->replacements as $find => $replace)
+        {
+            $finalBody = str_replace($find, $replace, $finalBody);
+        }
+        $message->setBody($finalBody);
     }
 
     /**
@@ -60,17 +85,40 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
 
     /**
      * Load the options
-     * @param  array $options Options array
      */
-    public function loadOptions($options)
+    public function loadOptions()
     {
-        if (isset($options['css-files']) && count($options['css-files']) > 0) {
-            $this->css = '';
-            foreach ($options['css-files'] as $file) {
-                $this->css .= file_get_contents($file);
-            }
+	    $this->css = '';
+	    if (isset($this->options['css-files']) && count($this->options['css-files']) > 0) {
+		    $this->css = $this->loadCssFiles($this->options['css-files']);
+	    }
+	    $this->exclusions = [];
+	    if (isset($this->options['exclusions']) && count($this->options['exclusions']) > 0) {
+		    $this->exclusions = $this->options['exclusions'];
+	    }
+
+        $this->replacements = [];
+        if (isset($this->options['replacements']) && count($this->options['replacements']) > 0) {
+            $this->replacements = $this->options['replacements'];
         }
     }
+
+	/**
+	 * Load the CSS files and join on the shared CSS files already loaded
+	 * @param  array $files Files array
+	 * @param  boolean $include_shared Whether or not to include the CSS loaded from options
+	 *
+	 * @return string $css The CSS string
+	 */
+	public function loadCssFiles($files, $include_shared = true) {
+		$css = $include_shared ? $this->css : '';
+		foreach ($files as $file) {
+			if ($file && !$this->exclusions || !in_array($file, $this->exclusions)) {
+				$css .= file_get_contents( $file );
+			}
+		}
+		return $css;
+	}
 
     /**
      * Find CSS stylesheet links and load them
@@ -79,38 +127,63 @@ class CssInlinerPlugin implements \Swift_Events_SendListener
      * any link stylesheets to $this->css
      * Removes any link elements
      *
-     * @return string $message The message
+     * @return array $result Array of message and CSS
      */
     public function loadCssFilesFromLinks($message)
     {
-        $dom = new \DOMDocument();
-        // set error level
-        $internalErrors = libxml_use_internal_errors(true);
-        
-        $dom->loadHTML($message);
-        
-        // Restore error level
-        libxml_use_internal_errors($internalErrors);
-        $link_tags = $dom->getElementsByTagName('link');
+	    $dom = new \DOMDocument();
+	    // set error level
+	    $internalErrors = libxml_use_internal_errors(true);
 
-        if ($link_tags->length > 0) {
-            do {
-                if ($link_tags->item(0)->getAttribute('rel') == "stylesheet") {
-                    $options['css-files'][] = $link_tags->item(0)->getAttribute('href');
+	    $dom->loadHTML($message);
 
-                    // remove the link node
-                    $link_tags->item(0)->parentNode->removeChild($link_tags->item(0));
-                }
-            } while ($link_tags->length > 0);
+	    // Restore error level
+	    libxml_use_internal_errors($internalErrors);
+	    $link_tags = $dom->getElementsByTagName('link');
+	    $removing = [];
 
-            if (isset($options)) {
-                // reload the options
-                $this->loadOptions($options);
-            }
+	    if ($link_tags->length > 0) {
+		    $css_files = [];
+		    for( $i = 0, $actual_index = 0; $i < $link_tags->length; $i++ ) {
+			    if ($link_tags->item($actual_index)->getAttribute('rel') == "stylesheet") {
+				    $href = $link_tags->item($actual_index)->getAttribute('href');
+				    // Don't remove link elements if their href is in the exclusion list (but keep track of new index value)
+				    if ($this->exclusions && in_array($href, $this->exclusions)) {
+					    $actual_index++;
+					    continue;
+				    }
 
-            return $dom->saveHTML();
-        }
+					if(function_exists('public_path')) {
+                        $public_path = preg_replace('/\//', '\/', public_path());
+                    } else {
+                        $public_path = dirname(dirname(__FILE__)) . DIRECTORY_SEPARATOR . 'public';
+                    }
 
-        return $message;
+                    if(preg_match("/^$public_path/", $href)) {
+                        $css_files[] = $href;
+                    } else {
+                        $css_files[] = public_path($href);
+                    }
+				    // remove the link node
+				    $removing[] = $i;
+			    }
+			    $actual_index++;
+		    }
+		    if ( $removing ) {
+			    arsort($removing);
+			    foreach( $removing as $remove ) {
+				    $link_tags->item( $remove )->parentNode->removeChild( $link_tags->item( $remove ) );
+			    }
+		    }
+		    return [
+		    	'message' => $dom->saveHTML(),
+			    'css' => $this->loadCssFiles($css_files),
+		    ];
+	    }
+
+	    return [
+		    'message' => $message,
+		    'css' => null,
+	    ];
     }
 }
